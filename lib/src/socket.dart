@@ -189,9 +189,11 @@ class PhoenixSocket {
 
     final completer = Completer<PhoenixSocket?>();
 
+    late StreamSubscription wsSubscription;
+
     try {
       _ws = WebSocketChannel.connect(_mountPoint);
-      _ws!.stream
+      wsSubscription = _ws!.stream
           .where(_shouldPipeMessage)
           .listen(_onSocketData, cancelOnError: true)
         ..onError(_onSocketError)
@@ -215,6 +217,8 @@ class PhoenixSocket {
     } on PhoenixException catch (err, stackTrace) {
       _logger.severe('Raised PhoenixException', err, stackTrace);
       final durationIdx = _reconnectAttempts++;
+      unawaited(wsSubscription.cancel());
+      unawaited(_ws!.sink.close());
       _ws = null;
       _socketState = SocketState.closed;
 
