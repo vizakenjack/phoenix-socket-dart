@@ -189,9 +189,11 @@ class PhoenixSocket {
 
     final completer = Completer<PhoenixSocket?>();
 
+    late StreamSubscription wsSubscription;
+
     try {
       _ws = WebSocketChannel.connect(_mountPoint);
-      _ws!.stream
+      wsSubscription = _ws!.stream
           .where(_shouldPipeMessage)
           .listen(_onSocketData, cancelOnError: true)
         ..onError(_onSocketError)
@@ -213,8 +215,11 @@ class PhoenixSocket {
         throw PhoenixException();
       }
     } on PhoenixException catch (err, stackTrace) {
+      if (_ws == null) return null;
       _logger.severe('Raised PhoenixException', err, stackTrace);
       final durationIdx = _reconnectAttempts++;
+      unawaited(wsSubscription.cancel());
+      unawaited(_ws!.sink.close());
       _ws = null;
       _socketState = SocketState.closed;
 
@@ -422,9 +427,18 @@ class PhoenixSocket {
     }
 
     try {
-      await sendMessage(_heartbeatMessage());
-      _logger.fine('[phoenix_socket] Heartbeat completed');
-      return true;
+      var ok = await Future.any<bool>([
+        Future(() async {
+          await sendMessage(_heartbeatMessage());
+          _logger.fine('[phoenix_socket] Heartbeat completed');
+          return true;
+        }),
+        Future.delayed(_options.timeout, () {
+          return false;
+        })
+      ]);
+      if (!ok) _logger.severe('[phoenix_socket] Heartbeat timed out');
+      return ok;
     } on PhoenixException catch (err, stacktrace) {
       _logger.severe(
         '[phoenix_socket] Heartbeat message failed with error',
