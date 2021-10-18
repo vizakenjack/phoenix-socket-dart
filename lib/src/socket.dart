@@ -426,17 +426,18 @@ class PhoenixSocket {
     }
 
     try {
-      return await Future.any<bool>([
+      var ok = await Future.any<bool>([
         Future(() async {
           await sendMessage(_heartbeatMessage());
           _logger.fine('[phoenix_socket] Heartbeat completed');
           return true;
         }),
         Future.delayed(_options.timeout, () {
-          _logger.severe('[phoenix_socket] Heartbeat timed out');
           return false;
         })
       ]);
+      if (!ok) _logger.severe('[phoenix_socket] Heartbeat timed out');
+      return ok;
     } on PhoenixException catch (err, stacktrace) {
       _logger.severe(
         '[phoenix_socket] Heartbeat message failed with error',
