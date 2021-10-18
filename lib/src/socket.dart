@@ -215,6 +215,7 @@ class PhoenixSocket {
         throw PhoenixException();
       }
     } on PhoenixException catch (err, stackTrace) {
+      if (_ws == null) return null;
       _logger.severe('Raised PhoenixException', err, stackTrace);
       final durationIdx = _reconnectAttempts++;
       unawaited(wsSubscription.cancel());
