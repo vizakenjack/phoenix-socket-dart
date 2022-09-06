@@ -60,17 +60,13 @@ class PhoenixSocket {
 
     _reconnects = _options.reconnectDelays;
 
-    _messageStream =
-        _receiveStreamController.stream.map(_options.serializer.decode);
+    _messageStream = _receiveStreamController.stream.map(_options.serializer.decode);
 
-    _openStream =
-        _stateStreamController.stream.whereType<PhoenixSocketOpenEvent>();
+    _openStream = _stateStreamController.stream.whereType<PhoenixSocketOpenEvent>();
 
-    _closeStream =
-        _stateStreamController.stream.whereType<PhoenixSocketCloseEvent>();
+    _closeStream = _stateStreamController.stream.whereType<PhoenixSocketCloseEvent>();
 
-    _errorStream =
-        _stateStreamController.stream.whereType<PhoenixSocketErrorEvent>();
+    _errorStream = _stateStreamController.stream.whereType<PhoenixSocketErrorEvent>();
 
     _subscriptions = [
       _messageStream.listen(_onMessage),
@@ -82,10 +78,8 @@ class PhoenixSocket {
   final Map<String, Completer<Message>> _pendingMessages = {};
   final Map<String, Stream<Message>> _topicStreams = {};
 
-  final BehaviorSubject<PhoenixSocketEvent> _stateStreamController =
-      BehaviorSubject();
-  final StreamController<String> _receiveStreamController =
-      StreamController.broadcast();
+  final BehaviorSubject<PhoenixSocketEvent> _stateStreamController = BehaviorSubject();
+  final StreamController<String> _receiveStreamController = StreamController.broadcast();
   final String _endpoint;
   final StreamController<Message> _topicMessages = StreamController();
 
@@ -154,8 +148,8 @@ class PhoenixSocket {
   /// The [PhoenixChannel] for this topic may not be open yet, it'll still
   /// eventually yield messages when the channel is open and it receives
   /// messages.
-  Stream<Message> streamForTopic(String topic) => _topicStreams.putIfAbsent(
-      topic, () => _streamRouter.route((event) => event.topic == topic));
+  Stream<Message> streamForTopic(String topic) =>
+      _topicStreams.putIfAbsent(topic, () => _streamRouter.route((event) => event.topic == topic));
 
   /// The string URL of the remote Phoenix server.
   String get endpoint => _endpoint;
@@ -173,8 +167,7 @@ class PhoenixSocket {
   /// by retryAfterIntervalMS
   Future<PhoenixSocket?> connect() async {
     if (_ws != null) {
-      _logger.warning(
-          'Calling connect() on already connected or connecting socket.');
+      _logger.warning('Calling connect() on already connected or connecting socket.');
       return this;
     }
 
@@ -193,15 +186,15 @@ class PhoenixSocket {
 
     try {
       _ws = WebSocketChannel.connect(_mountPoint);
-      wsSubscription = _ws!.stream
-          .where(_shouldPipeMessage)
-          .listen(_onSocketData, cancelOnError: true)
-        ..onError(_onSocketError)
-        ..onDone(_onSocketClosed);
+      wsSubscription =
+          _ws!.stream.where(_shouldPipeMessage).listen(_onSocketData, cancelOnError: true)
+            ..onError(_onSocketError)
+            ..onDone(_onSocketClosed);
     } catch (error, stacktrace) {
       _onSocketError(error, stacktrace);
     }
 
+    _reconnectAttempts++;
     _socketState = SocketState.connecting;
 
     try {
@@ -217,24 +210,12 @@ class PhoenixSocket {
     } on PhoenixException catch (err, stackTrace) {
       if (_ws == null) return null;
       _logger.severe('Raised PhoenixException', err, stackTrace);
-      final durationIdx = _reconnectAttempts++;
+      // final durationIdx = _reconnectAttempts++;
       unawaited(wsSubscription.cancel());
       unawaited(_ws!.sink.close());
       _ws = null;
       _socketState = SocketState.closed;
-
-      Duration duration;
-      if (durationIdx >= _reconnects.length) {
-        duration = _reconnects.last;
-      } else {
-        duration = _reconnects[durationIdx];
-      }
-
-      // Some random number to prevent many clients from retrying to
-      // connect at exactly the same time.
-      duration += Duration(milliseconds: _random.nextInt(1000));
-
-      completer.complete(_delayedReconnect(duration));
+      completer.complete(_delayedReconnect());
     }
 
     return completer.future;
@@ -344,8 +325,7 @@ class PhoenixSocket {
   }) {
     PhoenixChannel? channel;
     if (channels.isNotEmpty) {
-      final foundChannels =
-          channels.entries.where((element) => element.value.topic == topic);
+      final foundChannels = channels.entries.where((element) => element.value.topic == topic);
       channel = foundChannels.isNotEmpty ? foundChannels.first.value : null;
     }
 
@@ -391,8 +371,7 @@ class PhoenixSocket {
     }
   }
 
-  static Future<Uri> _buildMountPoint(
-      String endpoint, PhoenixSocketOptions options) async {
+  static Future<Uri> _buildMountPoint(String endpoint, PhoenixSocketOptions options) async {
     var decodedUri = Uri.parse(endpoint);
     final params = await options.getParams();
     final queryParams = decodedUri.queryParameters.entries.toList()
@@ -496,8 +475,7 @@ class PhoenixSocket {
 
   void _onSocketData(message) {
     if (message is String) {
-      if (_receiveStreamController is StreamController &&
-          !_receiveStreamController.isClosed) {
+      if (_receiveStreamController is StreamController && !_receiveStreamController.isClosed) {
         _receiveStreamController.add(message);
       }
     } else {
@@ -506,8 +484,7 @@ class PhoenixSocket {
   }
 
   void _onSocketError(dynamic error, dynamic stacktrace) {
-    if (_socketState == SocketState.closing ||
-        _socketState == SocketState.closed) {
+    if (_socketState == SocketState.closing || _socketState == SocketState.closed) {
       return;
     }
     final socketError = PhoenixSocketErrorEvent(
@@ -515,8 +492,7 @@ class PhoenixSocket {
       stacktrace: stacktrace,
     );
 
-    if (_stateStreamController is StreamController &&
-        !_stateStreamController.isClosed) {
+    if (_stateStreamController is StreamController && !_stateStreamController.isClosed) {
       _stateStreamController.add(socketError);
     }
 
@@ -570,11 +546,11 @@ class PhoenixSocket {
     _pendingMessages.clear();
   }
 
-  Future<PhoenixSocket?> _delayedReconnect([Duration? delay]) async {
+  Future<PhoenixSocket?> _delayedReconnect() async {
     if (_reconnecting) return null;
 
     _reconnecting = true;
-    await Future.delayed(delay ?? _options.reconnectDelays.first);
+    await Future.delayed(_reconnectDelay());
 
     if (!_disposed) {
       _reconnecting = false;
@@ -582,5 +558,19 @@ class PhoenixSocket {
     }
 
     return null;
+  }
+
+  Duration _reconnectDelay() {
+    final durationIdx = _reconnectAttempts;
+    Duration duration;
+    if (durationIdx >= _reconnects.length) {
+      duration = _reconnects.last;
+    } else {
+      duration = _reconnects[durationIdx];
+    }
+
+    // Some random number to prevent many clients from retrying to
+    // connect at exactly the same time.
+    return duration + Duration(milliseconds: _random.nextInt(1000));
   }
 }
